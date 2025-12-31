@@ -5,737 +5,308 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Arbeitszeit Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/preact@10.19.3/dist/preact.umd.js"></script>
-  <script src="https://unpkg.com/preact@10.19.3/hooks/dist/hooks.umd.js"></script>
-  <script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
   <style>
-    body { background: #09090b; }
+    body { background: #09090b; color: #fafafa; font-family: system-ui, -apple-system, sans-serif; }
+    input, select { background: #27272a; border: none; border-radius: 0.5rem; padding: 0.75rem 1rem; color: #fafafa; outline: none; }
+    input:focus { box-shadow: 0 0 0 2px #52525b; }
     input[type="date"]::-webkit-calendar-picker-indicator,
-    input[type="time"]::-webkit-calendar-picker-indicator {
-      filter: invert(1);
-    }
-    select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E"); background-position: right 0.5rem center; background-repeat: no-repeat; background-size: 1.5em 1.5em; }
+    input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+    button { cursor: pointer; transition: all 0.2s; }
+    .card { background: #18181b; border-radius: 0.75rem; padding: 1rem; }
   </style>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="app" class="min-h-screen p-4 md:p-8">
+    <div class="max-w-2xl mx-auto">
+      <div class="text-center py-8 text-zinc-500">Laden...</div>
+    </div>
+  </div>
+
   <script>
-    const { h, render } = preact;
-    const { useState, useEffect, useRef } = preactHooks;
-    const html = htm.bind(h);
-
-    const API_URL = '/api';
-
-    const api = {
-      async getEntries() {
-        const res = await fetch(API_URL + '/entries');
-        return res.json();
-      },
-      async addEntry(entry) {
-        const res = await fetch(API_URL + '/entries', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(entry)
-        });
-        return res.json();
-      },
-      async updateEntry(id, entry) {
-        const res = await fetch(API_URL + '/entries/' + id, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(entry)
-        });
-        return res.json();
-      },
-      async deleteEntry(id) {
-        await fetch(API_URL + '/entries/' + id, { method: 'DELETE' });
-      },
-      async getSettings() {
-        const res = await fetch(API_URL + '/settings');
-        return res.json();
-      },
-      async saveSettings(settings) {
-        const res = await fetch(API_URL + '/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(settings)
-        });
-        return res.json();
-      },
-      async importData(data) {
-        const res = await fetch(API_URL + '/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        });
-        return res.json();
-      }
+    var state = {
+      entries: [],
+      categories: ['Arbeit', 'W2Learn', 'Voice', 'Institut', 'Admin'],
+      weeklyTarget: 35,
+      dailyLimit: 8,
+      autoPause: 0,
+      view: 'entry',
+      showSettings: false,
+      entryMode: 'range',
+      date: new Date().toISOString().split('T')[0],
+      startTime: '08:00',
+      endTime: '15:00',
+      hours: '',
+      category: 'Arbeit',
+      note: ''
     };
 
-    function App() {
-      const [entries, setEntries] = useState([]);
-      const [categories, setCategories] = useState(['Arbeit', 'W2Learn', 'Voice', 'Institut', 'Admin']);
-      const [view, setView] = useState('entry');
-      const [loading, setLoading] = useState(true);
-      const [weeklyTarget, setWeeklyTarget] = useState(35);
-      const [dailyLimit, setDailyLimit] = useState(8);
-      const [autoPause, setAutoPause] = useState(0);
-      const [showSettings, setShowSettings] = useState(false);
-      const [tempTarget, setTempTarget] = useState(35);
-      const [tempDailyLimit, setTempDailyLimit] = useState(8);
-      const [tempAutoPause, setTempAutoPause] = useState(0);
-      const fileInputRef = useRef(null);
-      
-      const [entryMode, setEntryMode] = useState('range');
-      const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-      const [startTime, setStartTime] = useState('08:00');
-      const [endTime, setEndTime] = useState('15:00');
-      const [hours, setHours] = useState('');
-      const [category, setCategory] = useState('Arbeit');
-      const [note, setNote] = useState('');
-      const [newCategory, setNewCategory] = useState('');
-      const [showAddCategory, setShowAddCategory] = useState(false);
-      
-      const [editingEntry, setEditingEntry] = useState(null);
-      const [editDate, setEditDate] = useState('');
-      const [editStartTime, setEditStartTime] = useState('');
-      const [editEndTime, setEditEndTime] = useState('');
-      const [editHours, setEditHours] = useState('');
-      const [editCategory, setEditCategory] = useState('');
-      const [editNote, setEditNote] = useState('');
-      const [editMode, setEditMode] = useState('range');
+    var API = '/api';
 
-      useEffect(function() {
-        var loadData = async function() {
-          try {
-            var entriesData = await api.getEntries();
-            setEntries(entriesData);
-            
-            var settings = await api.getSettings();
-            if (settings) {
-              setWeeklyTarget(settings.weeklyTarget || 35);
-              setTempTarget(settings.weeklyTarget || 35);
-              setDailyLimit(settings.dailyLimit || 8);
-              setTempDailyLimit(settings.dailyLimit || 8);
-              setAutoPause(settings.autoPause || 0);
-              setTempAutoPause(settings.autoPause || 0);
-              if (settings.categories) {
-                setCategories(settings.categories);
-              }
-            }
-          } catch (e) {
-            console.error('Error loading data:', e);
-          }
-          setLoading(false);
-        };
-        loadData();
-      }, []);
-
-      function calculateHours(start, end, applyPauseFlag) {
-        if (!start || !end) return 0;
-        var startParts = start.split(':').map(Number);
-        var endParts = end.split(':').map(Number);
-        var hrs = ((endParts[0] * 60 + endParts[1]) - (startParts[0] * 60 + startParts[1])) / 60;
-        if (applyPauseFlag && autoPause > 0 && hrs > 6) {
-          hrs -= autoPause / 60;
-        }
-        return Math.max(0, hrs);
-      }
-
-      function applyPreset(preset) {
-        if (preset === '8-15') {
-          setStartTime('08:00');
-          setEndTime('15:00');
-          setEntryMode('range');
-        } else if (preset === '8-12') {
-          setStartTime('08:00');
-          setEndTime('12:00');
-          setEntryMode('range');
-        } else if (preset === 'yesterday') {
-          var yesterday = new Date();
-          yesterday.setDate(yesterday.getDate() - 1);
-          var yesterdayStr = yesterday.toISOString().split('T')[0];
-          var yesterdayEntries = entries.filter(function(e) { return e.date === yesterdayStr; });
-          if (yesterdayEntries.length > 0) {
-            var last = yesterdayEntries[yesterdayEntries.length - 1];
-            if (last.startTime) {
-              setEntryMode('range');
-              setStartTime(last.startTime);
-              setEndTime(last.endTime);
-            } else {
-              setEntryMode('hours');
-              setHours(last.hours.toString());
-            }
-            setCategory(last.category);
-          }
-        }
-      }
-
-      async function addEntry() {
-        var entryHours = entryMode === 'range' 
-          ? calculateHours(startTime, endTime, true)
-          : parseFloat(hours);
+    async function loadData() {
+      try {
+        var res = await fetch(API + '/entries');
+        state.entries = await res.json();
         
-        if (!entryHours || entryHours <= 0) return;
-
-        var newEntry = {
-          date: date,
-          hours: entryHours,
-          category: category,
-          note: note,
-          startTime: entryMode === 'range' ? startTime : null,
-          endTime: entryMode === 'range' ? endTime : null
-        };
-
-        var saved = await api.addEntry(newEntry);
-        setEntries(entries.concat([saved]));
-        
-        setHours('');
-        setNote('');
-        setStartTime('08:00');
-        setEndTime('15:00');
-
-        var todayHours = getTodayHours() + entryHours;
-        if (todayHours > dailyLimit) {
-          alert('Du hast heute ' + todayHours.toFixed(1) + 'h gearbeitet - über deinem Tageslimit von ' + dailyLimit + 'h!');
-        }
+        var settingsRes = await fetch(API + '/settings');
+        var settings = await settingsRes.json();
+        if (settings.weeklyTarget) state.weeklyTarget = settings.weeklyTarget;
+        if (settings.dailyLimit) state.dailyLimit = settings.dailyLimit;
+        if (settings.autoPause) state.autoPause = settings.autoPause;
+        if (settings.categories) state.categories = settings.categories;
+      } catch (e) {
+        console.error('Load error:', e);
       }
-
-      async function deleteEntry(id) {
-        await api.deleteEntry(id);
-        setEntries(entries.filter(function(e) { return e.id !== id; }));
-      }
-
-      function startEdit(entry) {
-        setEditingEntry(entry.id);
-        setEditDate(entry.date);
-        setEditStartTime(entry.startTime || '08:00');
-        setEditEndTime(entry.endTime || '15:00');
-        setEditHours(entry.hours.toString());
-        setEditCategory(entry.category);
-        setEditNote(entry.note || '');
-        setEditMode(entry.startTime ? 'range' : 'hours');
-      }
-
-      async function saveEdit() {
-        var entryHours = editMode === 'range' 
-          ? calculateHours(editStartTime, editEndTime, false)
-          : parseFloat(editHours);
-        
-        if (!entryHours || entryHours <= 0) return;
-
-        var updated = await api.updateEntry(editingEntry, {
-          date: editDate,
-          hours: entryHours,
-          category: editCategory,
-          note: editNote,
-          startTime: editMode === 'range' ? editStartTime : null,
-          endTime: editMode === 'range' ? editEndTime : null
-        });
-
-        setEntries(entries.map(function(e) { return e.id === editingEntry ? updated : e; }));
-        setEditingEntry(null);
-      }
-
-      function cancelEdit() { setEditingEntry(null); }
-
-      async function addCategoryHandler() {
-        if (newCategory && categories.indexOf(newCategory) === -1) {
-          var newCats = categories.concat([newCategory]);
-          setCategories(newCats);
-          await api.saveSettings({ weeklyTarget: weeklyTarget, dailyLimit: dailyLimit, autoPause: autoPause, categories: newCats });
-          setNewCategory('');
-          setShowAddCategory(false);
-        }
-      }
-
-      async function deleteCategoryHandler(cat) {
-        if (categories.length <= 1) return;
-        var newCats = categories.filter(function(c) { return c !== cat; });
-        setCategories(newCats);
-        if (category === cat) setCategory(newCats[0]);
-        await api.saveSettings({ weeklyTarget: weeklyTarget, dailyLimit: dailyLimit, autoPause: autoPause, categories: newCats });
-      }
-
-      async function saveSettingsHandler() {
-        setWeeklyTarget(tempTarget);
-        setDailyLimit(tempDailyLimit);
-        setAutoPause(tempAutoPause);
-        await api.saveSettings({ 
-          weeklyTarget: tempTarget, 
-          dailyLimit: tempDailyLimit, 
-          autoPause: tempAutoPause,
-          categories: categories 
-        });
-        setShowSettings(false);
-      }
-
-      function exportJSON() {
-        var data = { entries: entries, settings: { weeklyTarget: weeklyTarget, dailyLimit: dailyLimit, autoPause: autoPause, categories: categories } };
-        var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = 'arbeitszeit-backup-' + new Date().toISOString().split('T')[0] + '.json';
-        a.click();
-      }
-
-      function exportCSV() {
-        var headers = ['Datum', 'Start', 'Ende', 'Stunden', 'Kategorie', 'Notiz'];
-        var rows = entries.map(function(e) {
-          return [e.date, e.startTime || '', e.endTime || '', e.hours.toFixed(2), e.category, e.note || ''];
-        });
-        var allRows = [headers].concat(rows);
-        var csv = allRows.map(function(r) { return r.map(function(c) { return '"' + c + '"'; }).join(';'); }).join('\n');
-        var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = 'arbeitszeit-' + new Date().toISOString().split('T')[0] + '.csv';
-        a.click();
-      }
-
-      async function importJSON(e) {
-        var file = e.target.files[0];
-        if (!file) return;
-        var text = await file.text();
-        try {
-          var data = JSON.parse(text);
-          if (data.entries && Array.isArray(data.entries)) {
-            var result = await api.importData(data);
-            setEntries(result.entries);
-            if (data.settings) {
-              setWeeklyTarget(data.settings.weeklyTarget || 35);
-              setDailyLimit(data.settings.dailyLimit || 8);
-              setAutoPause(data.settings.autoPause || 0);
-              if (data.settings.categories) setCategories(data.settings.categories);
-            }
-            alert(result.entries.length + ' Einträge importiert');
-          }
-        } catch (err) {
-          alert('Fehler beim Import: ' + err.message);
-        }
-        e.target.value = '';
-      }
-
-      function getWeekNumber(d) {
-        var date = new Date(d);
-        date.setHours(0, 0, 0, 0);
-        date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
-        var week1 = new Date(date.getFullYear(), 0, 4);
-        return Math.round(((date - week1) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7) + 1;
-      }
-
-      function getMondayOfWeek(d) {
-        var date = new Date(d);
-        var day = date.getDay();
-        var diff = date.getDate() - day + (day === 0 ? -6 : 1);
-        return new Date(date.setDate(diff));
-      }
-
-      function getStats(startDate, endDate) {
-        return entries.filter(function(e) { return e.date >= startDate && e.date <= endDate; }).reduce(function(sum, e) { return sum + e.hours; }, 0);
-      }
-
-      function getTodayHours() {
-        var today = new Date().toISOString().split('T')[0];
-        return getStats(today, today);
-      }
-
-      function getThisWeekRange() {
-        var now = new Date();
-        var monday = getMondayOfWeek(now);
-        var sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        return { start: monday.toISOString().split('T')[0], end: sunday.toISOString().split('T')[0] };
-      }
-
-      function getWeekHours() {
-        var range = getThisWeekRange();
-        return getStats(range.start, range.end);
-      }
-
-      function getMonthHours() {
-        var now = new Date();
-        var firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-        var lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-        return getStats(firstDay, lastDay);
-      }
-
-      function getRemainingHours() { return Math.max(0, weeklyTarget - getWeekHours()); }
-
-      function getLast8WeeksData() {
-        var weeks = [];
-        var now = new Date();
-        for (var i = 7; i >= 0; i--) {
-          var weekStart = new Date(now);
-          weekStart.setDate(now.getDate() - (i * 7) - (now.getDay() + 6) % 7);
-          var weekEnd = new Date(weekStart);
-          weekEnd.setDate(weekStart.getDate() + 6);
-          var startStr = weekStart.toISOString().split('T')[0];
-          var endStr = weekEnd.toISOString().split('T')[0];
-          var weekHours = getStats(startStr, endStr);
-          var weekNum = getWeekNumber(weekStart);
-          weeks.push({ week: 'KW' + weekNum, hours: weekHours, over: weekHours > weeklyTarget });
-        }
-        return weeks;
-      }
-
-      function getWeeklyReport() {
-        var weeks = {};
-        entries.forEach(function(e) {
-          var weekNum = getWeekNumber(e.date);
-          var year = new Date(e.date).getFullYear();
-          var key = year + '-W' + (weekNum < 10 ? '0' : '') + weekNum;
-          if (!weeks[key]) weeks[key] = { hours: 0, entries: [] };
-          weeks[key].hours += e.hours;
-          weeks[key].entries.push(e);
-        });
-        return Object.entries(weeks).sort(function(a, b) { return b[0].localeCompare(a[0]); });
-      }
-
-      function getMonthlyReport() {
-        var months = {};
-        entries.forEach(function(e) {
-          var key = e.date.substring(0, 7);
-          if (!months[key]) months[key] = { hours: 0, entries: [] };
-          months[key].hours += e.hours;
-          months[key].entries.push(e);
-        });
-        return Object.entries(months).sort(function(a, b) { return b[0].localeCompare(a[0]); });
-      }
-
-      function generatePDF(month, data) {
-        var monthName = new Date(month + '-01').toLocaleDateString('de-AT', { month: 'long', year: 'numeric' });
-        var monthlyTarget = weeklyTarget * 4.33;
-        var monthEntries = data.entries.sort(function(a, b) { return a.date.localeCompare(b.date); });
-        var byCategory = {};
-        monthEntries.forEach(function(e) {
-          if (!byCategory[e.category]) byCategory[e.category] = 0;
-          byCategory[e.category] += e.hours;
-        });
-        
-        var catHtml = Object.entries(byCategory).map(function(item) {
-          return '<div class="category-row"><span>' + item[0] + '</span><span>' + item[1].toFixed(1) + 'h</span></div>';
-        }).join('');
-        
-        var entriesHtml = monthEntries.map(function(e) {
-          var dateStr = new Date(e.date).toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' });
-          var timeStr = e.startTime ? e.startTime + '–' + e.endTime : '–';
-          return '<tr><td>' + dateStr + '</td><td>' + timeStr + '</td><td>' + e.category + '</td><td class="note">' + (e.note || '–') + '</td><td class="hours">' + e.hours.toFixed(2) + '</td></tr>';
-        }).join('');
-        
-        var htmlContent = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Arbeitszeit ' + monthName + '</title><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:40px;color:#1a1a1a}h1{font-weight:300;font-size:28px;margin-bottom:8px}.subtitle{color:#666;margin-bottom:32px}.summary{display:flex;gap:40px;margin-bottom:32px;padding:20px;background:#f5f5f5;border-radius:8px}.summary-label{font-size:12px;color:#666;margin-bottom:4px}.summary-value{font-size:24px;font-weight:300}.over{color:#ef4444}.categories{margin-bottom:32px}.categories h2{font-size:14px;font-weight:600;margin-bottom:12px}.category-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee}table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;padding:12px 8px;border-bottom:2px solid #ddd;font-weight:600}td{padding:10px 8px;border-bottom:1px solid #eee}.hours{text-align:right}.note{color:#666;font-size:12px}</style></head><body><h1>Arbeitszeitnachweis</h1><div class="subtitle">' + monthName + '</div><div class="summary"><div><div class="summary-label">Gesamt</div><div class="summary-value ' + (data.hours > monthlyTarget ? 'over' : '') + '">' + data.hours.toFixed(1) + 'h</div></div><div><div class="summary-label">Ziel</div><div class="summary-value">' + monthlyTarget.toFixed(0) + 'h</div></div><div><div class="summary-label">Differenz</div><div class="summary-value ' + (data.hours > monthlyTarget ? 'over' : '') + '">' + (data.hours - monthlyTarget).toFixed(1) + 'h</div></div></div><div class="categories"><h2>Nach Kategorie</h2>' + catHtml + '</div><table><thead><tr><th>Datum</th><th>Zeit</th><th>Kategorie</th><th>Notiz</th><th class="hours">Stunden</th></tr></thead><tbody>' + entriesHtml + '</tbody></table></body></html>';
-        
-        var printWindow = window.open('', '_blank');
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
-        printWindow.print();
-      }
-
-      var weekProgress = (getWeekHours() / weeklyTarget) * 100;
-      var hoursRemaining = getRemainingHours();
-      var chartData = getLast8WeeksData();
-      var maxChartHours = Math.max(weeklyTarget, Math.max.apply(null, chartData.map(function(d) { return d.hours; })));
-
-      if (loading) {
-        return html`<div class="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center"><div class="text-zinc-500">Laden...</div></div>`;
-      }
-
-      return html`
-        <div class="min-h-screen bg-zinc-950 text-zinc-100 p-4 md:p-8">
-          <div class="max-w-2xl mx-auto">
-            
-            <div class="flex justify-between items-start mb-6">
-              <div>
-                <h1 class="text-2xl font-light mb-1">Arbeitszeit</h1>
-                <p class="text-zinc-500 text-sm">Ziel: ${weeklyTarget}h / Woche</p>
-              </div>
-              <button onClick=${function() { setShowSettings(!showSettings); setTempTarget(weeklyTarget); setTempDailyLimit(dailyLimit); setTempAutoPause(autoPause); }} class="p-2 text-zinc-500 hover:text-zinc-100 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-              </button>
-            </div>
-
-            ${showSettings && html`
-              <div class="bg-zinc-900 rounded-xl p-4 mb-6 space-y-4">
-                <div class="grid grid-cols-3 gap-4">
-                  <div>
-                    <label class="text-zinc-400 text-xs block mb-2">Wochenziel (h)</label>
-                    <input type="number" value=${tempTarget} onInput=${function(e) { setTempTarget(parseFloat(e.target.value) || 0); }} class="w-full bg-zinc-800 rounded-lg px-3 py-2 text-zinc-100 border-none outline-none" />
-                  </div>
-                  <div>
-                    <label class="text-zinc-400 text-xs block mb-2">Tageslimit (h)</label>
-                    <input type="number" value=${tempDailyLimit} onInput=${function(e) { setTempDailyLimit(parseFloat(e.target.value) || 0); }} class="w-full bg-zinc-800 rounded-lg px-3 py-2 text-zinc-100 border-none outline-none" />
-                  </div>
-                  <div>
-                    <label class="text-zinc-400 text-xs block mb-2">Auto-Pause (min)</label>
-                    <input type="number" value=${tempAutoPause} onInput=${function(e) { setTempAutoPause(parseInt(e.target.value) || 0); }} class="w-full bg-zinc-800 rounded-lg px-3 py-2 text-zinc-100 border-none outline-none" placeholder="z.B. 30" />
-                  </div>
-                </div>
-                <div class="text-zinc-500 text-xs">Auto-Pause wird bei mehr als 6h automatisch abgezogen</div>
-                
-                <div>
-                  <label class="text-zinc-400 text-xs block mb-2">Kategorien</label>
-                  <div class="flex flex-wrap gap-2">
-                    ${categories.map(function(cat) { return html`
-                      <div key=${cat} class="flex items-center gap-1 bg-zinc-800 rounded-lg px-3 py-1.5">
-                        <span class="text-sm">${cat}</span>
-                        ${categories.length > 1 && html`<button onClick=${function() { deleteCategoryHandler(cat); }} class="text-zinc-600 hover:text-red-400 ml-1">×</button>`}
-                      </div>
-                    `; })}
-                  </div>
-                </div>
-
-                <div class="flex gap-2 pt-2 border-t border-zinc-800">
-                  <button onClick=${exportJSON} class="px-3 py-1.5 bg-zinc-800 rounded text-xs hover:bg-zinc-700">JSON Export</button>
-                  <button onClick=${exportCSV} class="px-3 py-1.5 bg-zinc-800 rounded text-xs hover:bg-zinc-700">CSV Export</button>
-                  <button onClick=${function() { fileInputRef.current && fileInputRef.current.click(); }} class="px-3 py-1.5 bg-zinc-800 rounded text-xs hover:bg-zinc-700">JSON Import</button>
-                  <input ref=${fileInputRef} type="file" accept=".json" onChange=${importJSON} class="hidden" />
-                </div>
-                
-                <div class="flex justify-end gap-2 pt-2">
-                  <button onClick=${function() { setShowSettings(false); }} class="px-4 py-2 text-zinc-500 hover:text-zinc-100">Abbrechen</button>
-                  <button onClick=${saveSettingsHandler} class="px-4 py-2 bg-zinc-100 text-zinc-900 rounded-lg">Speichern</button>
-                </div>
-              </div>
-            `}
-
-            <div class="bg-gradient-to-r from-zinc-900 to-zinc-800 rounded-xl p-6 mb-6">
-              <div class="text-zinc-400 text-sm mb-1">Diese Woche noch frei</div>
-              <div class="text-4xl font-light ${hoursRemaining === 0 ? 'text-amber-400' : 'text-emerald-400'}">${hoursRemaining.toFixed(1)}h</div>
-              ${getWeekHours() > weeklyTarget && html`<div class="text-red-400 text-sm mt-2">⚠️ ${(getWeekHours() - weeklyTarget).toFixed(1)}h über dem Ziel</div>`}
-            </div>
-
-            <div class="grid grid-cols-3 gap-4 mb-6">
-              <div class="bg-zinc-900 rounded-xl p-4">
-                <div class="text-zinc-500 text-xs mb-1">Heute</div>
-                <div class="text-2xl font-light ${getTodayHours() > dailyLimit ? 'text-red-400' : ''}">${getTodayHours().toFixed(1)}h</div>
-              </div>
-              <div class="bg-zinc-900 rounded-xl p-4">
-                <div class="text-zinc-500 text-xs mb-1">Diese Woche</div>
-                <div class="text-2xl font-light ${getWeekHours() > weeklyTarget ? 'text-red-400' : ''}">${getWeekHours().toFixed(1)}h</div>
-              </div>
-              <div class="bg-zinc-900 rounded-xl p-4">
-                <div class="text-zinc-500 text-xs mb-1">Dieser Monat</div>
-                <div class="text-2xl font-light">${getMonthHours().toFixed(1)}h</div>
-              </div>
-            </div>
-
-            <div class="mb-8">
-              <div class="flex justify-between text-xs text-zinc-500 mb-2">
-                <span>Wochenziel</span>
-                <span>${getWeekHours().toFixed(1)} / ${weeklyTarget}h</span>
-              </div>
-              <div class="h-2 bg-zinc-800 rounded-full overflow-hidden">
-                <div class="h-full transition-all duration-500 ${weekProgress > 100 ? 'bg-red-500' : weekProgress > 85 ? 'bg-amber-500' : 'bg-emerald-500'}" style="width: ${Math.min(weekProgress, 100)}%"></div>
-              </div>
-            </div>
-
-            <div class="flex gap-2 mb-6 overflow-x-auto pb-2">
-              ${['entry', 'trend', 'history', 'weekly', 'monthly'].map(function(v) { return html`
-                <button key=${v} onClick=${function() { setView(v); }} class="px-4 py-2 rounded-lg text-sm transition-colors whitespace-nowrap ${view === v ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-100'}">
-                  ${v === 'entry' ? 'Erfassen' : v === 'trend' ? 'Trend' : v === 'history' ? 'Einträge' : v === 'weekly' ? 'Wochen' : 'Monate'}
-                </button>
-              `; })}
-            </div>
-
-            ${view === 'entry' && html`
-              <div class="bg-zinc-900 rounded-xl p-6">
-                <div class="flex gap-2 mb-4">
-                  <button onClick=${function() { applyPreset('8-15'); }} class="px-3 py-1.5 bg-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700">8–15 Uhr</button>
-                  <button onClick=${function() { applyPreset('8-12'); }} class="px-3 py-1.5 bg-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700">8–12 Uhr</button>
-                  <button onClick=${function() { applyPreset('yesterday'); }} class="px-3 py-1.5 bg-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700">Wie gestern</button>
-                </div>
-
-                <div class="flex gap-2 mb-6">
-                  <button onClick=${function() { setEntryMode('range'); }} class="flex-1 py-2 rounded-lg text-sm transition-colors ${entryMode === 'range' ? 'bg-zinc-700' : 'bg-zinc-800 text-zinc-500'}">Von – Bis</button>
-                  <button onClick=${function() { setEntryMode('hours'); }} class="flex-1 py-2 rounded-lg text-sm transition-colors ${entryMode === 'hours' ? 'bg-zinc-700' : 'bg-zinc-800 text-zinc-500'}">Stunden direkt</button>
-                </div>
-
-                <div class="mb-4">
-                  <label class="text-zinc-500 text-xs block mb-2">Datum</label>
-                  <input type="date" value=${date} onInput=${function(e) { setDate(e.target.value); }} class="w-full bg-zinc-800 rounded-lg px-4 py-3 text-zinc-100 border-none outline-none" />
-                </div>
-
-                ${entryMode === 'range' ? html`
-                  <div class="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label class="text-zinc-500 text-xs block mb-2">Von</label>
-                      <input type="time" value=${startTime} onInput=${function(e) { setStartTime(e.target.value); }} class="w-full bg-zinc-800 rounded-lg px-4 py-3 text-zinc-100 border-none outline-none" />
-                    </div>
-                    <div>
-                      <label class="text-zinc-500 text-xs block mb-2">Bis</label>
-                      <input type="time" value=${endTime} onInput=${function(e) { setEndTime(e.target.value); }} class="w-full bg-zinc-800 rounded-lg px-4 py-3 text-zinc-100 border-none outline-none" />
-                    </div>
-                  </div>
-                ` : html`
-                  <div class="mb-4">
-                    <label class="text-zinc-500 text-xs block mb-2">Stunden</label>
-                    <input type="number" step="0.25" value=${hours} onInput=${function(e) { setHours(e.target.value); }} placeholder="z.B. 7.5" class="w-full bg-zinc-800 rounded-lg px-4 py-3 text-zinc-100 border-none outline-none placeholder-zinc-600" />
-                  </div>
-                `}
-
-                ${entryMode === 'range' && startTime && endTime && html`
-                  <div class="text-center text-zinc-500 text-sm mb-4">
-                    = ${calculateHours(startTime, endTime, true).toFixed(2)} Stunden
-                    ${autoPause > 0 && calculateHours(startTime, endTime, false) > 6 && html`<span class="text-zinc-600"> (inkl. -${autoPause}min Pause)</span>`}
-                  </div>
-                `}
-
-                <div class="mb-4">
-                  <label class="text-zinc-500 text-xs block mb-2">Kategorie</label>
-                  <div class="flex flex-wrap gap-2">
-                    ${categories.map(function(cat) { return html`
-                      <button key=${cat} onClick=${function() { setCategory(cat); }} class="px-3 py-1.5 rounded-lg text-sm transition-colors ${category === cat ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-100'}">${cat}</button>
-                    `; })}
-                    <button onClick=${function() { setShowAddCategory(!showAddCategory); }} class="px-3 py-1.5 rounded-lg text-sm bg-zinc-800 text-zinc-500 hover:text-zinc-100">+</button>
-                  </div>
-                  ${showAddCategory && html`
-                    <div class="flex gap-2 mt-3">
-                      <input type="text" value=${newCategory} onInput=${function(e) { setNewCategory(e.target.value); }} placeholder="Neue Kategorie" class="flex-1 bg-zinc-800 rounded-lg px-4 py-2 text-sm text-zinc-100 border-none outline-none" />
-                      <button onClick=${addCategoryHandler} class="px-4 py-2 bg-zinc-700 rounded-lg text-sm hover:bg-zinc-600">Hinzufügen</button>
-                    </div>
-                  `}
-                </div>
-
-                <div class="mb-6">
-                  <label class="text-zinc-500 text-xs block mb-2">Notiz (optional)</label>
-                  <input type="text" value=${note} onInput=${function(e) { setNote(e.target.value); }} placeholder="Was hast du gemacht?" class="w-full bg-zinc-800 rounded-lg px-4 py-3 text-zinc-100 border-none outline-none placeholder-zinc-600" />
-                </div>
-
-                <button onClick=${addEntry} class="w-full bg-zinc-100 text-zinc-900 rounded-lg py-3 font-medium hover:bg-white transition-colors">Eintragen</button>
-              </div>
-            `}
-
-            ${view === 'trend' && html`
-              <div class="bg-zinc-900 rounded-xl p-6">
-                <h2 class="text-zinc-400 text-sm mb-4">Letzte 8 Wochen</h2>
-                <div class="flex items-end gap-2 h-48">
-                  ${chartData.map(function(d) { return html`
-                    <div key=${d.week} class="flex-1 flex flex-col items-center">
-                      <div class="w-full rounded-t relative ${d.over ? 'bg-red-500' : 'bg-emerald-500'}" style="height: ${Math.max(4, (d.hours / maxChartHours) * 160)}px"></div>
-                      <div class="text-xs text-zinc-500 mt-2">${d.week}</div>
-                      <div class="text-xs ${d.over ? 'text-red-400' : 'text-zinc-400'}">${d.hours.toFixed(0)}h</div>
-                    </div>
-                  `; })}
-                </div>
-                <div class="flex justify-center gap-6 mt-4 text-xs text-zinc-500">
-                  <div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-emerald-500"></div><span>Unter Ziel</span></div>
-                  <div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-red-500"></div><span>Über Ziel</span></div>
-                </div>
-              </div>
-            `}
-
-            ${view === 'history' && html`
-              <div class="space-y-2">
-                ${entries.length === 0 ? html`<div class="text-zinc-500 text-center py-8">Noch keine Einträge</div>` :
-                  entries.slice().reverse().map(function(entry) { return html`
-                    <div key=${entry.id} class="bg-zinc-900 rounded-xl p-4">
-                      ${editingEntry === entry.id ? html`
-                        <div class="space-y-4">
-                          <div class="flex gap-2 mb-4">
-                            <button onClick=${function() { setEditMode('range'); }} class="flex-1 py-1.5 rounded text-xs ${editMode === 'range' ? 'bg-zinc-700' : 'bg-zinc-800 text-zinc-500'}">Von–Bis</button>
-                            <button onClick=${function() { setEditMode('hours'); }} class="flex-1 py-1.5 rounded text-xs ${editMode === 'hours' ? 'bg-zinc-700' : 'bg-zinc-800 text-zinc-500'}">Stunden</button>
-                          </div>
-                          <input type="date" value=${editDate} onInput=${function(e) { setEditDate(e.target.value); }} class="w-full bg-zinc-800 rounded px-3 py-2 text-sm" />
-                          ${editMode === 'range' ? html`
-                            <div class="grid grid-cols-2 gap-2">
-                              <input type="time" value=${editStartTime} onInput=${function(e) { setEditStartTime(e.target.value); }} class="bg-zinc-800 rounded px-3 py-2 text-sm" />
-                              <input type="time" value=${editEndTime} onInput=${function(e) { setEditEndTime(e.target.value); }} class="bg-zinc-800 rounded px-3 py-2 text-sm" />
-                            </div>
-                          ` : html`
-                            <input type="number" step="0.25" value=${editHours} onInput=${function(e) { setEditHours(e.target.value); }} class="w-full bg-zinc-800 rounded px-3 py-2 text-sm" placeholder="Stunden" />
-                          `}
-                          <select value=${editCategory} onChange=${function(e) { setEditCategory(e.target.value); }} class="w-full bg-zinc-800 rounded px-3 py-2 text-sm appearance-none">
-                            ${categories.map(function(cat) { return html`<option key=${cat} value=${cat}>${cat}</option>`; })}
-                          </select>
-                          <input type="text" value=${editNote} onInput=${function(e) { setEditNote(e.target.value); }} class="w-full bg-zinc-800 rounded px-3 py-2 text-sm" placeholder="Notiz" />
-                          <div class="flex gap-2">
-                            <button onClick=${cancelEdit} class="flex-1 py-2 text-zinc-500 hover:text-zinc-100 text-sm">Abbrechen</button>
-                            <button onClick=${saveEdit} class="flex-1 py-2 bg-zinc-100 text-zinc-900 rounded text-sm">Speichern</button>
-                          </div>
-                        </div>
-                      ` : html`
-                        <div class="flex items-center justify-between">
-                          <div class="flex-1 cursor-pointer" onClick=${function() { startEdit(entry); }}>
-                            <div class="flex items-center gap-3">
-                              <span class="text-lg font-light">${entry.hours.toFixed(1)}h</span>
-                              <span class="text-zinc-500 text-sm">${entry.category}</span>
-                            </div>
-                            <div class="text-zinc-500 text-xs mt-1">
-                              ${new Date(entry.date).toLocaleDateString('de-AT', { weekday: 'short', day: 'numeric', month: 'short' })}
-                              ${entry.startTime ? ' · ' + entry.startTime + '–' + entry.endTime : ''}
-                              ${entry.note ? ' · ' + entry.note : ''}
-                            </div>
-                          </div>
-                          <div class="flex items-center gap-1">
-                            <button onClick=${function() { startEdit(entry); }} class="text-zinc-600 hover:text-zinc-100 transition-colors p-2">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
-                            </button>
-                            <button onClick=${function() { deleteEntry(entry.id); }} class="text-zinc-600 hover:text-red-400 transition-colors p-2">✕</button>
-                          </div>
-                        </div>
-                      `}
-                    </div>
-                  `; })
-                }
-              </div>
-            `}
-
-            ${view === 'weekly' && html`
-              <div class="space-y-3">
-                ${getWeeklyReport().length === 0 ? html`<div class="text-zinc-500 text-center py-8">Noch keine Daten</div>` :
-                  getWeeklyReport().map(function(item) { var week = item[0]; var data = item[1]; return html`
-                    <div key=${week} class="bg-zinc-900 rounded-xl p-4">
-                      <div class="flex justify-between items-center">
-                        <span class="text-zinc-400">${week}</span>
-                        <span class="text-xl font-light ${data.hours > weeklyTarget ? 'text-red-400' : ''}">${data.hours.toFixed(1)}h</span>
-                      </div>
-                      <div class="mt-2 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                        <div class="h-full ${data.hours > weeklyTarget ? 'bg-red-500' : 'bg-emerald-500'}" style="width: ${Math.min((data.hours / weeklyTarget) * 100, 100)}%"></div>
-                      </div>
-                      ${data.hours > weeklyTarget && html`<div class="text-red-400 text-xs mt-2">+${(data.hours - weeklyTarget).toFixed(1)}h über Ziel</div>`}
-                    </div>
-                  `; })
-                }
-              </div>
-            `}
-
-            ${view === 'monthly' && html`
-              <div class="space-y-3">
-                ${getMonthlyReport().length === 0 ? html`<div class="text-zinc-500 text-center py-8">Noch keine Daten</div>` :
-                  getMonthlyReport().map(function(item) { 
-                    var month = item[0]; 
-                    var data = item[1]; 
-                    var monthlyTarget = weeklyTarget * 4.33;
-                    return html`
-                      <div key=${month} class="bg-zinc-900 rounded-xl p-4">
-                        <div class="flex justify-between items-center">
-                          <div>
-                            <span class="text-zinc-100">${new Date(month + '-01').toLocaleDateString('de-AT', { month: 'long', year: 'numeric' })}</span>
-                            <div class="text-zinc-600 text-xs mt-1">Ziel: ~${monthlyTarget.toFixed(0)}h · ${data.entries.length} Einträge</div>
-                          </div>
-                          <div class="flex items-center gap-3">
-                            <span class="text-xl font-light ${data.hours > monthlyTarget ? 'text-red-400' : ''}">${data.hours.toFixed(1)}h</span>
-                            <button onClick=${function() { generatePDF(month, data); }} class="p-2 text-zinc-500 hover:text-zinc-100 transition-colors" title="PDF exportieren">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7,10 12,15 17,10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    `; 
-                  })
-                }
-              </div>
-            `}
-
-            <div class="mt-8 text-center text-zinc-700 text-xs">Worktime Tracker v1.0</div>
-          </div>
-        </div>
-      `;
+      render();
     }
 
-    render(html`<${App} />`, document.getElementById('root'));
+    async function saveEntry() {
+      var hrs = state.entryMode === 'range' 
+        ? calculateHours(state.startTime, state.endTime, true)
+        : parseFloat(state.hours);
+      
+      if (!hrs || hrs <= 0) return;
+
+      var entry = {
+        date: state.date,
+        hours: hrs,
+        category: state.category,
+        note: state.note,
+        startTime: state.entryMode === 'range' ? state.startTime : null,
+        endTime: state.entryMode === 'range' ? state.endTime : null
+      };
+
+      var res = await fetch(API + '/entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry)
+      });
+      var saved = await res.json();
+      state.entries.push(saved);
+      state.hours = '';
+      state.note = '';
+      render();
+    }
+
+    async function deleteEntry(id) {
+      await fetch(API + '/entries/' + id, { method: 'DELETE' });
+      state.entries = state.entries.filter(function(e) { return e.id !== id; });
+      render();
+    }
+
+    async function saveSettings() {
+      await fetch(API + '/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          weeklyTarget: state.weeklyTarget,
+          dailyLimit: state.dailyLimit,
+          autoPause: state.autoPause,
+          categories: state.categories
+        })
+      });
+      state.showSettings = false;
+      render();
+    }
+
+    function calculateHours(start, end, withPause) {
+      if (!start || !end) return 0;
+      var s = start.split(':').map(Number);
+      var e = end.split(':').map(Number);
+      var hrs = ((e[0] * 60 + e[1]) - (s[0] * 60 + s[1])) / 60;
+      if (withPause && state.autoPause > 0 && hrs > 6) {
+        hrs -= state.autoPause / 60;
+      }
+      return Math.max(0, hrs);
+    }
+
+    function getStats(startDate, endDate) {
+      return state.entries
+        .filter(function(e) { return e.date >= startDate && e.date <= endDate; })
+        .reduce(function(sum, e) { return sum + e.hours; }, 0);
+    }
+
+    function getTodayHours() {
+      var today = new Date().toISOString().split('T')[0];
+      return getStats(today, today);
+    }
+
+    function getWeekHours() {
+      var now = new Date();
+      var day = now.getDay();
+      var monday = new Date(now);
+      monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+      var sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      return getStats(monday.toISOString().split('T')[0], sunday.toISOString().split('T')[0]);
+    }
+
+    function getMonthHours() {
+      var now = new Date();
+      var first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      var last = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+      return getStats(first, last);
+    }
+
+    function formatDate(dateStr) {
+      return new Date(dateStr).toLocaleDateString('de-AT', { weekday: 'short', day: 'numeric', month: 'short' });
+    }
+
+    function setView(v) { state.view = v; render(); }
+    function setEntryMode(m) { state.entryMode = m; render(); }
+    function setCategory(c) { state.category = c; render(); }
+    function setPreset(start, end) { state.startTime = start; state.endTime = end; state.entryMode = 'range'; render(); }
+    function toggleSettings() { state.showSettings = !state.showSettings; render(); }
+    function updateDate(v) { state.date = v; }
+    function updateStartTime(v) { state.startTime = v; render(); }
+    function updateEndTime(v) { state.endTime = v; render(); }
+    function updateHours(v) { state.hours = v; }
+    function updateNote(v) { state.note = v; }
+    function updateWeeklyTarget(v) { state.weeklyTarget = parseFloat(v) || 35; }
+    function updateDailyLimit(v) { state.dailyLimit = parseFloat(v) || 8; }
+    function updateAutoPause(v) { state.autoPause = parseInt(v) || 0; }
+
+    function render() {
+      var weekHours = getWeekHours();
+      var remaining = Math.max(0, state.weeklyTarget - weekHours);
+      var progress = (weekHours / state.weeklyTarget) * 100;
+      var progressColor = progress > 100 ? 'bg-red-500' : progress > 85 ? 'bg-amber-500' : 'bg-emerald-500';
+
+      var html = '<div class="max-w-2xl mx-auto">';
+      
+      html += '<div class="flex justify-between items-start mb-6">';
+      html += '<div><h1 class="text-2xl font-light mb-1">Arbeitszeit</h1>';
+      html += '<p class="text-zinc-500 text-sm">Ziel: ' + state.weeklyTarget + 'h / Woche</p></div>';
+      html += '<button onclick="toggleSettings()" class="p-2 text-zinc-500 hover:text-zinc-100 text-xl">⚙️</button>';
+      html += '</div>';
+
+      if (state.showSettings) {
+        html += '<div class="card mb-6 space-y-4">';
+        html += '<div class="grid grid-cols-3 gap-4">';
+        html += '<div><label class="text-zinc-400 text-xs block mb-2">Wochenziel (h)</label>';
+        html += '<input type="number" value="' + state.weeklyTarget + '" onchange="updateWeeklyTarget(this.value)" class="w-full"></div>';
+        html += '<div><label class="text-zinc-400 text-xs block mb-2">Tageslimit (h)</label>';
+        html += '<input type="number" value="' + state.dailyLimit + '" onchange="updateDailyLimit(this.value)" class="w-full"></div>';
+        html += '<div><label class="text-zinc-400 text-xs block mb-2">Auto-Pause (min)</label>';
+        html += '<input type="number" value="' + state.autoPause + '" onchange="updateAutoPause(this.value)" class="w-full"></div>';
+        html += '</div>';
+        html += '<div class="flex gap-2 justify-end">';
+        html += '<button onclick="toggleSettings()" class="px-4 py-2 text-zinc-500 hover:text-zinc-100">Abbrechen</button>';
+        html += '<button onclick="saveSettings()" class="px-4 py-2 bg-zinc-100 text-zinc-900 rounded-lg hover:bg-white">Speichern</button>';
+        html += '</div></div>';
+      }
+
+      html += '<div class="card mb-6 bg-gradient-to-r from-zinc-900 to-zinc-800 p-6">';
+      html += '<div class="text-zinc-400 text-sm mb-1">Diese Woche noch frei</div>';
+      var remainingColor = remaining === 0 ? 'text-amber-400' : 'text-emerald-400';
+      html += '<div class="text-4xl font-light ' + remainingColor + '">' + remaining.toFixed(1) + 'h</div>';
+      if (weekHours > state.weeklyTarget) {
+        html += '<div class="text-red-400 text-sm mt-2">⚠️ ' + (weekHours - state.weeklyTarget).toFixed(1) + 'h über dem Ziel</div>';
+      }
+      html += '</div>';
+
+      html += '<div class="grid grid-cols-3 gap-4 mb-6">';
+      html += '<div class="card"><div class="text-zinc-500 text-xs mb-1">Heute</div>';
+      html += '<div class="text-2xl font-light">' + getTodayHours().toFixed(1) + 'h</div></div>';
+      html += '<div class="card"><div class="text-zinc-500 text-xs mb-1">Diese Woche</div>';
+      var weekColor = weekHours > state.weeklyTarget ? 'text-red-400' : '';
+      html += '<div class="text-2xl font-light ' + weekColor + '">' + weekHours.toFixed(1) + 'h</div></div>';
+      html += '<div class="card"><div class="text-zinc-500 text-xs mb-1">Dieser Monat</div>';
+      html += '<div class="text-2xl font-light">' + getMonthHours().toFixed(1) + 'h</div></div>';
+      html += '</div>';
+
+      html += '<div class="mb-8">';
+      html += '<div class="flex justify-between text-xs text-zinc-500 mb-2"><span>Wochenziel</span><span>' + weekHours.toFixed(1) + ' / ' + state.weeklyTarget + 'h</span></div>';
+      html += '<div class="h-2 bg-zinc-800 rounded-full overflow-hidden">';
+      html += '<div class="h-full transition-all duration-500 ' + progressColor + '" style="width:' + Math.min(progress, 100) + '%"></div>';
+      html += '</div></div>';
+
+      html += '<div class="flex gap-2 mb-6">';
+      var entryActive = state.view === 'entry' ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-100';
+      var historyActive = state.view === 'history' ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-100';
+      html += '<button onclick="setView(\'entry\')" class="px-4 py-2 rounded-lg text-sm ' + entryActive + '">Erfassen</button>';
+      html += '<button onclick="setView(\'history\')" class="px-4 py-2 rounded-lg text-sm ' + historyActive + '">Einträge</button>';
+      html += '</div>';
+
+      if (state.view === 'entry') {
+        html += '<div class="card p-6">';
+        
+        html += '<div class="flex gap-2 mb-4">';
+        html += '<button onclick="setPreset(\'08:00\',\'15:00\')" class="px-3 py-1.5 bg-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700">8–15 Uhr</button>';
+        html += '<button onclick="setPreset(\'08:00\',\'12:00\')" class="px-3 py-1.5 bg-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700">8–12 Uhr</button>';
+        html += '</div>';
+
+        html += '<div class="flex gap-2 mb-6">';
+        var rangeActive = state.entryMode === 'range' ? 'bg-zinc-700' : 'bg-zinc-800 text-zinc-500';
+        var hoursActive = state.entryMode === 'hours' ? 'bg-zinc-700' : 'bg-zinc-800 text-zinc-500';
+        html += '<button onclick="setEntryMode(\'range\')" class="flex-1 py-2 rounded-lg text-sm ' + rangeActive + '">Von – Bis</button>';
+        html += '<button onclick="setEntryMode(\'hours\')" class="flex-1 py-2 rounded-lg text-sm ' + hoursActive + '">Stunden</button>';
+        html += '</div>';
+
+        html += '<div class="mb-4"><label class="text-zinc-500 text-xs block mb-2">Datum</label>';
+        html += '<input type="date" value="' + state.date + '" onchange="updateDate(this.value)" class="w-full"></div>';
+
+        if (state.entryMode === 'range') {
+          html += '<div class="grid grid-cols-2 gap-4 mb-4">';
+          html += '<div><label class="text-zinc-500 text-xs block mb-2">Von</label>';
+          html += '<input type="time" value="' + state.startTime + '" onchange="updateStartTime(this.value)" class="w-full"></div>';
+          html += '<div><label class="text-zinc-500 text-xs block mb-2">Bis</label>';
+          html += '<input type="time" value="' + state.endTime + '" onchange="updateEndTime(this.value)" class="w-full"></div>';
+          html += '</div>';
+          var previewHours = calculateHours(state.startTime, state.endTime, true);
+          html += '<div class="text-center text-zinc-500 text-sm mb-4">= ' + previewHours.toFixed(2) + ' Stunden</div>';
+        } else {
+          html += '<div class="mb-4"><label class="text-zinc-500 text-xs block mb-2">Stunden</label>';
+          html += '<input type="number" step="0.25" value="' + state.hours + '" onchange="updateHours(this.value)" placeholder="z.B. 7.5" class="w-full"></div>';
+        }
+
+        html += '<div class="mb-4"><label class="text-zinc-500 text-xs block mb-2">Kategorie</label>';
+        html += '<div class="flex flex-wrap gap-2">';
+        for (var i = 0; i < state.categories.length; i++) {
+          var cat = state.categories[i];
+          var catActive = state.category === cat ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-100';
+          html += '<button onclick="setCategory(\'' + cat + '\')" class="px-3 py-1.5 rounded-lg text-sm ' + catActive + '">' + cat + '</button>';
+        }
+        html += '</div></div>';
+
+        html += '<div class="mb-6"><label class="text-zinc-500 text-xs block mb-2">Notiz (optional)</label>';
+        html += '<input type="text" value="' + (state.note || '') + '" onchange="updateNote(this.value)" placeholder="Was hast du gemacht?" class="w-full"></div>';
+
+        html += '<button onclick="saveEntry()" class="w-full bg-zinc-100 text-zinc-900 rounded-lg py-3 font-medium hover:bg-white">Eintragen</button>';
+        html += '</div>';
+      }
+
+      if (state.view === 'history') {
+        html += '<div class="space-y-2">';
+        if (state.entries.length === 0) {
+          html += '<div class="text-zinc-500 text-center py-8">Noch keine Einträge</div>';
+        } else {
+          var sorted = state.entries.slice().reverse();
+          for (var j = 0; j < sorted.length; j++) {
+            var entry = sorted[j];
+            html += '<div class="card flex items-center justify-between">';
+            html += '<div>';
+            html += '<div class="flex items-center gap-3">';
+            html += '<span class="text-lg font-light">' + entry.hours.toFixed(1) + 'h</span>';
+            html += '<span class="text-zinc-500 text-sm">' + entry.category + '</span>';
+            html += '</div>';
+            html += '<div class="text-zinc-500 text-xs mt-1">' + formatDate(entry.date);
+            if (entry.startTime) html += ' · ' + entry.startTime + '–' + entry.endTime;
+            if (entry.note) html += ' · ' + entry.note;
+            html += '</div></div>';
+            html += '<button onclick="deleteEntry(' + entry.id + ')" class="text-zinc-600 hover:text-red-400 p-2 text-lg">✕</button>';
+            html += '</div>';
+          }
+        }
+        html += '</div>';
+      }
+
+      html += '<div class="mt-8 text-center text-zinc-700 text-xs">Worktime Tracker v1.0</div>';
+      html += '</div>';
+
+      document.getElementById('app').innerHTML = html;
+    }
+
+    loadData();
   </script>
 </body>
 </html>
