@@ -1,0 +1,18 @@
+{
+  "name": "worktime-tracker",
+  "version": "1.0.0",
+  "description": "Simple worktime tracking app with weekly/monthly reports",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "node backend/server.js"
+  },
+  "keywords": ["worktime", "tracker", "timetracking"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.18.2"
+  }
+}

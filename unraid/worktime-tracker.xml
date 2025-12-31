@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>worktime-tracker</Name>
+  <Repository>DEIN_DOCKERHUB_USER/worktime-tracker:latest</Repository>
+  <Registry>https://hub.docker.com/r/DEIN_DOCKERHUB_USER/worktime-tracker</Registry>
+  <Branch>
+    <Tag>latest</Tag>
+    <TagDescription>Latest stable release</TagDescription>
+  </Branch>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/DEIN_GITHUB_USER/worktime-tracker/issues</Support>
+  <Project>https://github.com/DEIN_GITHUB_USER/worktime-tracker</Project>
+  <Overview>
+    Simple worktime tracking app. Track your working hours with the goal of working LESS, not more.
+    
+    Features:
+    - Quick time entry (from/to or hours)
+    - Weekly target with visual progress
+    - 8-week trend chart
+    - PDF monthly reports
+    - JSON/CSV export
+    - Categories for projects
+  </Overview>
+  <Category>Productivity: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:3000]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/DEIN_GITHUB_USER/worktime-tracker/main/unraid/worktime-tracker.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/DEIN_GITHUB_USER/worktime-tracker/main/icon.png</Icon>
+  <ExtraParams>--restart unless-stopped</ExtraParams>
+  <DateInstalled></DateInstalled>
+  <Description>
+    Simple worktime tracking app. Track your working hours with the goal of working LESS, not more.
+  </Description>
+  <Config 
+    Name="Web UI Port" 
+    Target="3000" 
+    Default="3000" 
+    Mode="tcp" 
+    Description="Web interface port" 
+    Type="Port" 
+    Display="always" 
+    Required="true" 
+    Mask="false">3000</Config>
+  <Config 
+    Name="Data Path" 
+    Target="/app/data" 
+    Default="/mnt/user/appdata/worktime-tracker" 
+    Mode="rw" 
+    Description="Database storage location" 
+    Type="Path" 
+    Display="always" 
+    Required="true" 
+    Mask="false">/mnt/user/appdata/worktime-tracker</Config>
+</Container>
