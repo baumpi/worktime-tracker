@@ -1,16 +1,16 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>worktime-tracker</Name>
-  <Repository>DEIN_DOCKERHUB_USER/worktime-tracker:latest</Repository>
-  <Registry>https://hub.docker.com/r/DEIN_DOCKERHUB_USER/worktime-tracker</Registry>
+  <Repository>ghcr.io/baumpi/worktime-tracker:latest</Repository>
+  <Registry>https://github.com/baumpi/worktime-tracker/pkgs/container/worktime-tracker</Registry>
   <Branch>
     <Tag>latest</Tag>
     <TagDescription>Latest stable release</TagDescription>
   </Branch>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
-  <Support>https://github.com/DEIN_GITHUB_USER/worktime-tracker/issues</Support>
-  <Project>https://github.com/DEIN_GITHUB_USER/worktime-tracker</Project>
+  <Support>https://github.com/baumpi/worktime-tracker/issues</Support>
+  <Project>https://github.com/baumpi/worktime-tracker</Project>
   <Overview>
     Simple worktime tracking app. Track your working hours with the goal of working LESS, not more.
     
@@ -24,10 +24,9 @@
   </Overview>
   <Category>Productivity: Tools:</Category>
   <WebUI>http://[IP]:[PORT:3000]</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/DEIN_GITHUB_USER/worktime-tracker/main/unraid/worktime-tracker.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/DEIN_GITHUB_USER/worktime-tracker/main/icon.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/baumpi/worktime-tracker/main/unraid/worktime-tracker.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/baumpi/worktime-tracker/main/icon.svg</Icon>
   <ExtraParams>--restart unless-stopped</ExtraParams>
-  <DateInstalled></DateInstalled>
   <Description>
     Simple worktime tracking app. Track your working hours with the goal of working LESS, not more.
   </Description>
