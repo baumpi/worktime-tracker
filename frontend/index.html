@@ -38,10 +38,90 @@
       endTime: '15:00',
       hours: '',
       category: 'Arbeit',
-      note: ''
+      note: '',
+      activeSession: null,
+      showCategoryEditor: false,
+      newCategory: ''
     };
 
     var API = '/api';
+    var AUTO_STOP_TIME = '15:00';
+    var autoStopIntervalId = null;
+    var autoStopInProgress = false;
+
+    function pad2(num) {
+      return String(num).padStart(2, '0');
+    }
+
+    function formatTime(date) {
+      return pad2(date.getHours()) + ':' + pad2(date.getMinutes());
+    }
+
+    function formatIsoDate(date) {
+      return date.toISOString().split('T')[0];
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function escapeAttr(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function escapeJs(text) {
+      return String(text)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, '\\\'');
+    }
+
+    function loadActiveSession() {
+      try {
+        var raw = localStorage.getItem('activeSession');
+        if (!raw) return;
+        var session = JSON.parse(raw);
+        if (session && session.date && session.startTime) {
+          state.activeSession = session;
+          syncStateWithActiveSession();
+        }
+      } catch (e) {
+        console.error('Session load error:', e);
+      }
+    }
+
+    function persistActiveSession() {
+      if (state.activeSession) {
+        localStorage.setItem('activeSession', JSON.stringify(state.activeSession));
+      } else {
+        localStorage.removeItem('activeSession');
+      }
+    }
+
+    function syncStateWithActiveSession() {
+      if (!state.activeSession) return;
+      state.entryMode = 'range';
+      state.date = state.activeSession.date;
+      state.startTime = state.activeSession.startTime;
+      state.category = state.activeSession.category || state.category;
+      state.note = state.activeSession.note || '';
+    }
+
+    function ensureCategorySelection() {
+      if (!state.categories.length) {
+        state.category = '';
+        return;
+      }
+      if (state.categories.indexOf(state.category) === -1) {
+        state.category = state.categories[0];
+      }
+    }
 
     async function loadData() {
       try {
@@ -57,25 +137,18 @@
       } catch (e) {
         console.error('Load error:', e);
       }
+      ensureCategorySelection();
+      loadActiveSession();
+      await autoStopIfNeeded();
+      if (!autoStopIntervalId) {
+        autoStopIntervalId = setInterval(function() {
+          autoStopIfNeeded();
+        }, 60000);
+      }
       render();
     }
 
-    async function saveEntry() {
-      var hrs = state.entryMode === 'range' 
-        ? calculateHours(state.startTime, state.endTime, true)
-        : parseFloat(state.hours);
-      
-      if (!hrs || hrs <= 0) return;
-
-      var entry = {
-        date: state.date,
-        hours: hrs,
-        category: state.category,
-        note: state.note,
-        startTime: state.entryMode === 'range' ? state.startTime : null,
-        endTime: state.entryMode === 'range' ? state.endTime : null
-      };
-
+    async function createEntry(entry) {
       var res = await fetch(API + '/entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -83,6 +156,48 @@
       });
       var saved = await res.json();
       state.entries.push(saved);
+      return saved;
+    }
+
+    function buildRangeEntry(date, startTime, endTime, category, note) {
+      var hrs = calculateHours(startTime, endTime, true);
+      if (!hrs || hrs <= 0) return null;
+      return {
+        date: date,
+        hours: hrs,
+        category: category,
+        note: note || null,
+        startTime: startTime,
+        endTime: endTime
+      };
+    }
+
+    function buildEntryFromState() {
+      if (state.entryMode === 'range') {
+        return buildRangeEntry(
+          state.date,
+          state.startTime,
+          state.endTime,
+          state.category,
+          state.note
+        );
+      }
+      var hrs = parseFloat(state.hours);
+      if (!hrs || hrs <= 0) return null;
+      return {
+        date: state.date,
+        hours: hrs,
+        category: state.category,
+        note: state.note || null,
+        startTime: null,
+        endTime: null
+      };
+    }
+
+    async function saveEntry() {
+      var entry = buildEntryFromState();
+      if (!entry) return;
+      await createEntry(entry);
       state.hours = '';
       state.note = '';
       render();
@@ -107,6 +222,110 @@
       });
       state.showSettings = false;
       render();
+    }
+
+    async function saveCategories() {
+      await fetch(API + '/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categories: state.categories })
+      });
+    }
+
+    function addCategory() {
+      var name = (state.newCategory || '').trim();
+      if (!name) return;
+      if (state.categories.indexOf(name) === -1) {
+        state.categories.push(name);
+        ensureCategorySelection();
+        saveCategories();
+      }
+      state.newCategory = '';
+      render();
+    }
+
+    function removeCategory(name) {
+      if (state.categories.length <= 1) return;
+      state.categories = state.categories.filter(function(c) { return c !== name; });
+      if (state.activeSession && state.activeSession.category === name) {
+        state.activeSession.category = state.categories[0] || '';
+        persistActiveSession();
+      }
+      ensureCategorySelection();
+      saveCategories();
+      render();
+    }
+
+    function toggleCategoryEditor() {
+      state.showCategoryEditor = !state.showCategoryEditor;
+      render();
+    }
+
+    function updateNewCategory(v) { state.newCategory = v; }
+
+    async function finalizeActiveSession(endTime) {
+      if (!state.activeSession) return;
+      var session = state.activeSession;
+      var entry = buildRangeEntry(
+        session.date,
+        session.startTime,
+        endTime,
+        session.category,
+        session.note
+      );
+      state.activeSession = null;
+      persistActiveSession();
+      if (entry) {
+        await createEntry(entry);
+        state.date = session.date;
+        state.startTime = session.startTime;
+        state.endTime = endTime;
+        state.entryMode = 'range';
+        state.category = session.category || state.category;
+        state.note = '';
+      }
+      render();
+    }
+
+    function startTracking() {
+      if (state.activeSession) return;
+      var now = new Date();
+      var session = {
+        date: formatIsoDate(now),
+        startTime: formatTime(now),
+        category: state.category,
+        note: state.note || ''
+      };
+      state.activeSession = session;
+      syncStateWithActiveSession();
+      state.endTime = '';
+      persistActiveSession();
+      render();
+    }
+
+    async function stopTracking() {
+      if (!state.activeSession) return;
+      await finalizeActiveSession(formatTime(new Date()));
+    }
+
+    async function autoStopIfNeeded() {
+      if (!state.activeSession || autoStopInProgress) return;
+      var now = new Date();
+      var today = formatIsoDate(now);
+      var sessionDate = state.activeSession.date;
+      var shouldAutoStop = false;
+      if (today > sessionDate) {
+        shouldAutoStop = true;
+      } else if (today === sessionDate) {
+        var cutoff = new Date(now);
+        var parts = AUTO_STOP_TIME.split(':').map(Number);
+        cutoff.setHours(parts[0], parts[1], 0, 0);
+        if (now >= cutoff) shouldAutoStop = true;
+      }
+      if (!shouldAutoStop) return;
+      autoStopInProgress = true;
+      await finalizeActiveSession(AUTO_STOP_TIME);
+      autoStopInProgress = false;
     }
 
     function calculateHours(start, end, withPause) {
@@ -233,14 +452,40 @@
     function setView(v) { state.view = v; render(); }
     function setTrendView(v) { state.trendView = v; render(); }
     function setEntryMode(m) { state.entryMode = m; render(); }
-    function setCategory(c) { state.category = c; render(); }
+    function setCategory(c) {
+      state.category = c;
+      if (state.activeSession) {
+        state.activeSession.category = c;
+        persistActiveSession();
+      }
+      render();
+    }
     function setPreset(start, end) { state.startTime = start; state.endTime = end; state.entryMode = 'range'; render(); }
     function toggleSettings() { state.showSettings = !state.showSettings; render(); }
-    function updateDate(v) { state.date = v; }
-    function updateStartTime(v) { state.startTime = v; render(); }
+    function updateDate(v) {
+      state.date = v;
+      if (state.activeSession) {
+        state.activeSession.date = v;
+        persistActiveSession();
+      }
+    }
+    function updateStartTime(v) {
+      state.startTime = v;
+      if (state.activeSession) {
+        state.activeSession.startTime = v;
+        persistActiveSession();
+      }
+      render();
+    }
     function updateEndTime(v) { state.endTime = v; render(); }
     function updateHours(v) { state.hours = v; }
-    function updateNote(v) { state.note = v; }
+    function updateNote(v) {
+      state.note = v;
+      if (state.activeSession) {
+        state.activeSession.note = v;
+        persistActiveSession();
+      }
+    }
     function updateWeeklyTarget(v) { state.weeklyTarget = parseFloat(v) || 35; }
     function updateDailyLimit(v) { state.dailyLimit = parseFloat(v) || 8; }
     function updateAutoPause(v) { state.autoPause = parseInt(v) || 0; }
@@ -439,6 +684,29 @@
 
       if (state.view === 'entry') {
         html += '<div class="card p-6">';
+
+        html += '<div class="mb-6 p-4 rounded-lg bg-zinc-900/60 border border-zinc-800">';
+        if (state.activeSession) {
+          html += '<div class="flex items-center justify-between gap-4">';
+          html += '<div>';
+          html += '<div class="text-zinc-400 text-xs mb-1">Laufende Session</div>';
+          html += '<div class="text-lg font-light">' + state.activeSession.startTime + ' bis jetzt</div>';
+          html += '<div class="text-zinc-500 text-xs mt-1">Datum: ' + state.activeSession.date + ' · Kategorie: ' + escapeHtml(state.activeSession.category || '') + '</div>';
+          html += '<div class="text-zinc-500 text-xs mt-1">Auto-Stopp um ' + AUTO_STOP_TIME + ' wenn kein Stop</div>';
+          html += '</div>';
+          html += '<button onclick="stopTracking()" class="px-4 py-2 bg-red-400 text-zinc-900 rounded-lg hover:bg-red-300">Stop</button>';
+          html += '</div>';
+        } else {
+          html += '<div class="flex items-center justify-between gap-4">';
+          html += '<div>';
+          html += '<div class="text-zinc-400 text-xs mb-1">Live-Tracking</div>';
+          html += '<div class="text-zinc-500 text-sm">Startet mit aktueller Uhrzeit</div>';
+          html += '<div class="text-zinc-500 text-xs mt-1">Auto-Stopp um ' + AUTO_STOP_TIME + ' wenn kein Stop</div>';
+          html += '</div>';
+          html += '<button onclick="startTracking()" class="px-4 py-2 bg-emerald-400 text-zinc-900 rounded-lg hover:bg-emerald-300">Start</button>';
+          html += '</div>';
+        }
+        html += '</div>';
         
         html += '<div class="flex gap-2 mb-4">';
         html += '<button onclick="setPreset(\'08:00\',\'15:00\')" class="px-3 py-1.5 bg-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700">8–15 Uhr</button>';
@@ -474,12 +742,32 @@
         for (var i = 0; i < state.categories.length; i++) {
           var cat = state.categories[i];
           var catActive = state.category === cat ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-100';
-          html += '<button onclick="setCategory(\'' + cat + '\')" class="px-3 py-1.5 rounded-lg text-sm ' + catActive + '">' + cat + '</button>';
+          html += '<button onclick="setCategory(\'' + escapeJs(cat) + '\')" class="px-3 py-1.5 rounded-lg text-sm ' + catActive + '">' + escapeHtml(cat) + '</button>';
+        }
+        html += '</div>';
+        html += '<div class="mt-3">';
+        html += '<button onclick="toggleCategoryEditor()" class="text-xs text-zinc-500 hover:text-zinc-100">Kategorien bearbeiten</button>';
+        html += '</div>';
+        if (state.showCategoryEditor) {
+          html += '<div class="mt-3 p-3 rounded-lg bg-zinc-900/60 border border-zinc-800">';
+          html += '<div class="flex gap-2 mb-2">';
+          html += '<input type="text" value="' + escapeAttr(state.newCategory || '') + '" oninput="updateNewCategory(this.value)" placeholder="Neue Kategorie" class="flex-1">';
+          html += '<button onclick="addCategory()" class="px-3 py-2 bg-zinc-100 text-zinc-900 rounded-lg hover:bg-white">Hinzufügen</button>';
+          html += '</div>';
+          html += '<div class="flex flex-wrap gap-2">';
+          for (var k = 0; k < state.categories.length; k++) {
+            var catEdit = state.categories[k];
+            html += '<span class="flex items-center gap-2 bg-zinc-800 text-zinc-200 px-2 py-1 rounded-lg text-xs">';
+            html += escapeHtml(catEdit);
+            html += '<button onclick="removeCategory(\'' + escapeJs(catEdit) + '\')" class="text-zinc-400 hover:text-red-300">x</button>';
+            html += '</span>';
+          }
+          html += '</div></div>';
         }
         html += '</div></div>';
 
         html += '<div class="mb-6"><label class="text-zinc-500 text-xs block mb-2">Notiz (optional)</label>';
-        html += '<input type="text" value="' + (state.note || '') + '" onchange="updateNote(this.value)" placeholder="Was hast du gemacht?" class="w-full"></div>';
+        html += '<input type="text" value="' + escapeAttr(state.note || '') + '" onchange="updateNote(this.value)" placeholder="Was hast du gemacht?" class="w-full"></div>';
 
         html += '<button onclick="saveEntry()" class="w-full bg-zinc-100 text-zinc-900 rounded-lg py-3 font-medium hover:bg-white">Eintragen</button>';
         html += '</div>';
@@ -560,11 +848,11 @@
             html += '<div>';
             html += '<div class="flex items-center gap-3">';
             html += '<span class="text-lg font-light">' + entry.hours.toFixed(1) + 'h</span>';
-            html += '<span class="text-zinc-500 text-sm">' + entry.category + '</span>';
+            html += '<span class="text-zinc-500 text-sm">' + escapeHtml(entry.category) + '</span>';
             html += '</div>';
             html += '<div class="text-zinc-500 text-xs mt-1">' + formatDate(entry.date);
             if (entry.startTime) html += ' · ' + entry.startTime + '–' + entry.endTime;
-            if (entry.note) html += ' · ' + entry.note;
+            if (entry.note) html += ' · ' + escapeHtml(entry.note);
             html += '</div></div>';
             html += '<button onclick="deleteEntry(' + entry.id + ')" class="text-zinc-600 hover:text-red-400 p-2 text-lg">✕</button>';
             html += '</div>';
